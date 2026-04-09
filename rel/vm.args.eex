@@ -9,3 +9,8 @@
 +MHlmbcs 512
 +MBsmbcs 256
 +MHsmbcs 256
+
+## if you're on a platform that does burst scheduling, like EC2 in AWS.
++sbwt none
++sbwtdcpu none
++sbwtdio none
