@@ -1,0 +1,135 @@
+name: Deploy a full deployment to AWS
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.environment }}
+  cancel-in-progress: true
+
+env:
+  BASENAME: nerves_hub
+  MIX_ENV: prod
+  RETENTION_DAYS: 7
+  S3_BUCKET: prod-qhub-distribution
+  METADATA_FILE: current.json
+
+jobs:
+  release:
+    name: Build Mix Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # https://hexdocs.pm/erlexec/readme.html#building-from-source
+      - name: Install libcap-dev [needed for the release]
+        run: sudo apt-get install libcap-dev -y
+      
+      # install dependencies (./nerves_hub_web/Dockerfile)
+      - name: Install libcap-dev [needed for the release]
+        run: |
+          sudo apt-get update -y && apt-get install -y build-essential git ca-certificates curl gnupg && \
+          apt-get clean && \
+          rm -f /var/lib/apt/lists/*_*
+
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      # This action version has a built-in caching mechanism
+      # https://github.com/actions/setup-node?tab=readme-ov-file#caching-global-packages-data
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .tool-versions
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Update project mix version
+        run: |
+          sed -i "s/.*version: .*/      version: \"${{ inputs.tag }}\",/" mix.exs
+
+      - name: Install Elixir dependencies
+        run: mix do deps.get + compile --warnings-as-errors
+
+      - name: Assets Deploy
+        run: mix assets.deploy
+
+      - name: Sentry package
+        run: mix sentry.package_source_code
+
+      - name: Compile and Generate a Release
+        run: mix release
+
+      - name: Write metadata
+        run: |
+          VERSION='${{ inputs.tag }}'
+          PRE_COMMANDS='["eval NervesHub.Release.Tasks.migrate"]'
+          HASH='${{ github.sha }}'
+
+          jq -n \
+          --arg version "$VERSION" \
+          --argjson pre_commands "$PRE_COMMANDS" \
+          --arg hash "$HASH" \
+          '{version: $version, pre_commands: $pre_commands, hash: $hash}' > ${{ env.METADATA_FILE }}
+
+      - name: "Upload release artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact
+          path: _build/prod/${{ env.BASENAME }}-${{ inputs.tag }}.tar.gz
+          retention-days: ${{ env.RETENTION_DAYS }}
+
+      - name: "Upload metadata artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-artifact
+          path: ${{ env.METADATA_FILE }}
+          retention-days: ${{ env.RETENTION_DAYS }}
+
+  push_to_s3:
+    name: Push to S3
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifact
+
+      - name: Download metadata artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: metadata-artifact
+
+      - name: Upload release to S3
+        uses: prewk/s3-cp-action@v2
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          source: "${{ env.BASENAME }}-${{ inputs.tag }}.tar.gz"
+          dest: "s3://${{ env.S3_BUCKET }}/dist/amaru/${{ env.BASENAME }}-${{ inputs.tag }}.tar.gz"
+
+      - name: Copy a version file to the s3 version folder
+        uses: prewk/s3-cp-action@v2
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          source: "${{ env.METADATA_FILE }}"
+          dest: "s3://${{ env.S3_BUCKET }}/versions/amaru/${{ inputs.environment }}/${{ env.METADATA_FILE }}"
