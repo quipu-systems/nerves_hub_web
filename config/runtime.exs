@@ -221,37 +221,47 @@ end
 #
 
 database_ssl_opts =
-  if System.get_env("DATABASE_SSL", "true") == "true" do
-    if System.get_env("DATABASE_PEM") do
-      db_hostname_charlist =
-        ~r/.*@(?<hostname>[^:\/]+)(?::\d+)?\/.*/
-        |> Regex.named_captures(System.fetch_env!("DATABASE_URL"))
-        |> Map.get("hostname")
-        |> to_charlist()
-
-      cacerts =
-        System.fetch_env!("DATABASE_PEM")
-        |> Base.decode64!()
-        |> :public_key.pem_decode()
-        |> Enum.map(fn {_, der, _} -> der end)
-
-      verify =
-        if System.get_env("DATABASE_CERT_SELF_SIGNED", "false") == "true" do
-          [verify: :verify_none, verify_fun: {&Repo.verify_fun/3, {:der_bin, List.first(cacerts)}}]
-        else
-          [verify: :verify_peer]
-        end
-
-      [
-        cacerts: cacerts,
-        server_name_indication: db_hostname_charlist
-      ] ++ verify
-    else
-      [cacerts: :public_key.cacerts_get()]
-    end
+  if System.get_env("DATABASE_SSL_CERT") do
+    [
+      verify: :verify_peer,
+      cacertfile: System.fetch_env!("DATABASE_SSL_CERT")
+    ]
   else
     false
   end
+
+# database_ssl_opts =
+#  if System.get_env("DATABASE_SSL", "true") == "true" do
+#    if System.get_env("DATABASE_PEM") do
+#      db_hostname_charlist =
+#        ~r/.*@(?<hostname>[^:\/]+)(?::\d+)?\/.*/
+#        |> Regex.named_captures(System.fetch_env!("DATABASE_URL"))
+#        |> Map.get("hostname")
+#        |> to_charlist()
+#
+#      cacerts =
+#        System.fetch_env!("DATABASE_PEM")
+#        |> Base.decode64!()
+#        |> :public_key.pem_decode()
+#        |> Enum.map(fn {_, der, _} -> der end)
+#
+#      verify =
+#        if System.get_env("DATABASE_CERT_SELF_SIGNED", "false") == "true" do
+#          [verify: :verify_none, verify_fun: {&Repo.verify_fun/3, {:der_bin, List.first(cacerts)}}]
+#        else
+#          [verify: :verify_peer]
+#        end
+#
+#      [
+#        cacerts: cacerts,
+#        server_name_indication: db_hostname_charlist
+#      ] ++ verify
+#    else
+#      [cacerts: :public_key.cacerts_get()]
+#    end
+#  else
+#    false
+#  end
 
 if config_env() == :prod do
   database_socket_options = if System.get_env("DATABASE_INET6") == "true", do: [:inet6], else: []

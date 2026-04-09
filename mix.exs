@@ -13,7 +13,7 @@ defmodule NervesHub.MixProject do
       listeners: listeners(Mix.env()),
       releases: [
         nerves_hub: [
-          steps: [:assemble],
+          steps: [:assemble, &Jellyfish.generate/1, :tar],
           include_executables_for: [:unix],
           applications: [
             opentelemetry_exporter: :permanent,
@@ -163,7 +163,9 @@ defmodule NervesHub.MixProject do
       {:unzip, "~> 0.12"},
       {:uuidv7, "~> 1.0"},
       {:x509, "~> 0.5.1 or ~> 0.6"},
-      {:flop, "~> 0.26.1"}
+      {:flop, "~> 0.26.1"},
+      {:jellyfish, "~> 0.2.0"},
+      {:observer_web, "~> 0.2.0"}
     ]
   end
 

@@ -131,6 +131,8 @@ config :nerves_hub,
   namespace: NervesHub,
   ecto_repos: [NervesHub.AnalyticsRepo, NervesHub.Repo]
 
+config :observer_web, mode: :broadcast
+
 config :phoenix,
   json_library: Jason,
   template_engines: [
